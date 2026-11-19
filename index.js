@@ -33,7 +33,7 @@ const favoritesCollection = db.collection("favorites");
 
 
 app.get("/", (req, res) => {
-  res.send("Hello, World!");
+  res.send({message: "Welcome to the Rentrixa API", status: "success"});
 });
 
 app.post("/equipment", async (req, res) => {
