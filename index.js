@@ -2,7 +2,7 @@ import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import { MongoClient } from "mongodb";
-
+import { ObjectId } from "mongodb";
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -10,14 +10,13 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
-const client = new MongoClient(process.env.MONGODB_URI)
+const client = new MongoClient(process.env.MONGODB_URI);
 export async function connectToMongoDB() {
   try {
     await client.connect();
     console.log("you are connected to MongoDB!");
     return client;
-  
-  }catch (err){
+  } catch (err) {
     console.dir(err);
   }
 }
@@ -30,16 +29,111 @@ const bookingsCollection = db.collection("bookings");
 const paymentsCollection = db.collection("payments");
 const favoritesCollection = db.collection("favorites");
 
-
-
 app.get("/", (req, res) => {
-  res.send({message: "Welcome to the Rentrixa API", status: "success"});
+  res.send({ message: "Welcome to the Rentrixa API", status: "success" });
 });
 
+
+// Owner's Equipment Route
+
+app.get("/my-equipment/:ownerEmail", async (req, res) => {
+  const ownerEmail = req.params.ownerEmail;
+  try {
+    const myEquipment = await equipmentCollection
+      .find({ ownerEmail })
+      .toArray();
+    res.json(myEquipment);
+  } catch (error) {
+    console.error("Error fetching user's equipment:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+
+// Get all equipment route
+app.get("/equipment", async (req, res) => {
+  try {
+    const equipment = await equipmentCollection.find().toArray();
+    res.json(equipment);
+  } catch (error) {
+    console.error("Error fetching equipment:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+
+// Delete equipment route
+
+app.delete("/equipment/:id", async (req, res) => {
+  const equipmentId = req.params.id;
+
+  try {
+    if (!ObjectId.isValid(equipmentId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid equipment ID",
+      });
+    }
+
+    const result = await equipmentCollection.deleteOne({
+      _id: new ObjectId(equipmentId),
+    });
+
+    if (result.deletedCount === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Equipment not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Equipment deleted successfully",
+    });
+  } catch (error) {
+    console.error("Error deleting equipment:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+});
+
+// Owner's Update equipment route
+app.patch("/equipment/:id", async (req, res) => {
+  const equipmentId = req.params.id;
+  const updatedData = req.body;
+
+  try {
+    const result = await equipmentCollection.updateOne(
+      { _id: new ObjectId(equipmentId) },
+      { $set: updatedData },
+    );
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ message: "Equipment not found" });
+    }
+
+    res.json({ message: "Equipment updated successfully" });
+  } catch (error) {
+    console.error("Error updating equipment:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+// Owner's Add equipment route
 app.post("/equipment", async (req, res) => {
-  const equipment = req.body;
-  const result = await equipmentCollection.insertOne(equipment);
-  res.send(result);
+  try {
+    const equipment = req.body;
+    const result = await equipmentCollection.insertOne(equipment);
+    res
+      .status(201)
+      .json({ message: "Equipment added successfully", id: result.insertedId });
+  } catch (error) {
+    console.error("Error adding equipment:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
 });
 
 app.listen(PORT, () => {
