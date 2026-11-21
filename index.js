@@ -33,6 +33,38 @@ app.get("/", (req, res) => {
   res.send({ message: "Welcome to the Rentrixa API", status: "success" });
 });
 
+
+//Equipment View Details Page
+
+app.get("/equipment/:id", async (req, res) => {
+  const equipmentId = req.params.id;
+
+  try {
+    if (!ObjectId.isValid(equipmentId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid equipment ID",
+      });
+    }
+
+    const equipment = await equipmentCollection.findOne({
+      _id: new ObjectId(equipmentId),
+    });
+
+    if (!equipment) {
+      return res.status(404).json({
+        success: false,
+        message: "Equipment not found",
+      });
+    }
+
+    res.json(equipment);
+  } catch (error) {
+    console.error("Error fetching equipment details:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
 // get all approved equipment 
 
 app.get("/approved-equipment", async (req, res) => {
@@ -161,6 +193,60 @@ app.post("/equipment", async (req, res) => {
   } catch (error) {
     console.error("Error adding equipment:", error);
     res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+// Customer's Bookings Rental History
+
+app.get("/user-bookings/:userEmail", async (req, res) => {
+  const userEmail = req.params.userEmail;
+
+  try {
+    const bookings = await bookingsCollection.find({ userEmail }).toArray();
+    res.json(bookings);
+  } catch (error) {
+    console.error("Error fetching user's bookings:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+// Customer's Add to Bookings
+
+app.post("/book-equipment", async (req, res) => {
+  try {
+    const booking = req.body;
+
+    const { equipmentId, userEmail } = booking;
+
+    if (!equipmentId || !userEmail) {
+      return res.status(400).json({
+        success: false,
+        message: "Equipment ID and user email are required.",
+      });
+    }
+    const alreadyBooked = await bookingsCollection.findOne({
+      equipmentId,
+      userEmail,
+    });
+    if (alreadyBooked) {
+      return res.status(409).json({
+        success: false,
+        message: "You have already booked this equipment.",
+      });
+    }
+    const result = await bookingsCollection.insertOne(booking);
+    res.status(201).json({
+      success: true,
+      message: "Booking added successfully.",
+      id: result.insertedId,
+    });
+  } catch (error) {
+    console.error("Error adding booking:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Internal server error.",
+    });
   }
 });
 
