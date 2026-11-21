@@ -33,6 +33,33 @@ app.get("/", (req, res) => {
   res.send({ message: "Welcome to the Rentrixa API", status: "success" });
 });
 
+// get all approved equipment 
+
+app.get("/approved-equipment", async (req, res) => {
+  try {
+    const approvedEquipment = await equipmentCollection
+      .find({ status: "approved" })
+      .toArray();
+    res.json(approvedEquipment);
+  } catch (error) {
+    console.error("Error fetching approved equipment:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+// get approved equipment limited to 6 items
+app.get("/approved-equipment/limit", async (req, res) => {
+  try {
+    const approvedEquipment = await equipmentCollection
+      .find({ status: "approved" })
+      .limit(6)
+      .toArray();
+    res.json(approvedEquipment);
+  } catch (error) {
+    console.error("Error fetching approved equipment:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
 
 // Owner's Equipment Route
 
@@ -74,6 +101,7 @@ app.delete("/equipment/:id", async (req, res) => {
         message: "Invalid equipment ID",
       });
     }
+
 
     const result = await equipmentCollection.deleteOne({
       _id: new ObjectId(equipmentId),
