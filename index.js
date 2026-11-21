@@ -33,7 +33,6 @@ app.get("/", (req, res) => {
   res.send({ message: "Welcome to the Rentrixa API", status: "success" });
 });
 
-
 //Equipment View Details Page
 
 app.get("/equipment/:id", async (req, res) => {
@@ -65,7 +64,7 @@ app.get("/equipment/:id", async (req, res) => {
   }
 });
 
-// get all approved equipment 
+// get all approved equipment
 
 app.get("/approved-equipment", async (req, res) => {
   try {
@@ -108,7 +107,6 @@ app.get("/my-equipment/:ownerEmail", async (req, res) => {
   }
 });
 
-
 // Get all equipment route
 app.get("/equipment", async (req, res) => {
   try {
@@ -119,7 +117,6 @@ app.get("/equipment", async (req, res) => {
     res.status(500).json({ message: "Internal server error" });
   }
 });
-
 
 // Delete equipment route
 
@@ -133,7 +130,6 @@ app.delete("/equipment/:id", async (req, res) => {
         message: "Invalid equipment ID",
       });
     }
-
 
     const result = await equipmentCollection.deleteOne({
       _id: new ObjectId(equipmentId),
@@ -246,6 +242,127 @@ app.post("/book-equipment", async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Internal server error.",
+    });
+  }
+});
+
+// Approve All Equipment Filter Search and Sort 
+
+app.get("/all-equipment", async (req, res) => {
+  try {
+    const query = {
+      status: "approved",
+    };
+
+    if (req.query.category) {
+      query.category = {
+        $regex: `^${req.query.category}$`,
+        $options: "i",
+      };
+    }
+
+    if (req.query.rentalType) {
+      query.rentalType = {
+        $regex: `^${req.query.rentalType}$`,
+        $options: "i",
+      };
+    }
+    if (req.query.price) {
+      const [minPrice, maxPrice] = req.query.price.split("-").map(Number);
+
+      if (Number.isFinite(minPrice) && Number.isFinite(maxPrice)) {
+        query.$expr = {
+          $and: [
+            {
+              $gte: [{ $toDouble: "$price" }, minPrice],
+            },
+            {
+              $lte: [{ $toDouble: "$price" }, maxPrice],
+            },
+          ],
+        };
+      }
+    }
+
+    if (req.query.search) {
+      const search = req.query.search.trim();
+
+      if (search) {
+        const searchRegex = {
+          $regex: search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+          $options: "i",
+        };
+
+        query.$or = [
+          { name: searchRegex },
+          { description: searchRegex },
+          { category: searchRegex },
+          { brand: searchRegex },
+          { model: searchRegex },
+          { rentalType: searchRegex },
+        ];
+      }
+    }
+
+    const sortOption = req.query.sort || "recent";
+
+    let sortStage = {};
+
+    switch (sortOption) {
+      case "price-asc":
+        sortStage = {
+          priceNumeric: 1,
+        };
+        break;
+
+      case "price-desc":
+        sortStage = {
+          priceNumeric: -1,
+        };
+        break;
+
+      case "recent":
+      default:
+        sortStage = {
+          createdAt: -1,
+          _id: -1,
+        };
+        break;
+    }
+    const equipment = await equipmentCollection
+      .aggregate([
+        {
+          $match: query,
+        },
+        {
+          $addFields: {
+            priceNumeric: {
+              $convert: {
+                input: "$price",
+                to: "double",
+                onError: 0,
+                onNull: 0,
+              },
+            },
+          },
+        },
+        {
+          $sort: sortStage,
+        },
+        {
+          $project: {
+            priceNumeric: 0,
+          },
+        },
+      ])
+      .toArray();
+
+    res.status(200).json(equipment);
+  } catch (error) {
+    console.error("Error fetching equipment:", error);
+
+    res.status(500).json({
+      message: "Failed to fetch equipment",
     });
   }
 });
