@@ -240,7 +240,7 @@ app.get("/my-equipment/:ownerEmail", async (req, res) => {
   }
 });
 
-// Get all equipment route
+//  Get all equipment route
 app.get("/equipment", async (req, res) => {
   try {
     const equipment = await equipmentCollection.find().toArray();
@@ -248,6 +248,53 @@ app.get("/equipment", async (req, res) => {
   } catch (error) {
     console.error("Error fetching equipment:", error);
     res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+//admin get all bookings equipment
+app.get("/equipment-bookings", async (req, res) => {
+  try {
+    const bookings = await bookingsCollection.find().toArray();
+    res.json(bookings);
+  } catch (error) {
+    console.error("Error fetching all bookings:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+// admin delete booking equipment route
+
+app.delete("/bookings/:id", async (req, res) => {
+  const bookingId = req.params.id;
+
+  try {
+    if (!ObjectId.isValid(bookingId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid booking ID",
+      });
+    }
+    const result = await bookingsCollection.deleteOne({
+      _id: new ObjectId(bookingId),
+    });
+
+    if (result.deletedCount === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Booking not found",
+      });
+    }
+    return res.status(200).json({
+      success: true,
+      message: "Booking deleted successfully",
+    });
+  } catch (error) {
+    console.error("Error deleting booking:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
   }
 });
 
@@ -610,7 +657,7 @@ app.post("/favorites", async (req, res) => {
     });
   }
 });
-
+// Remove favorite
 app.delete("/favorites", async (req, res) => {
   try {
     const { equipmentId, userEmail } = req.body;
@@ -640,6 +687,95 @@ app.delete("/favorites", async (req, res) => {
     });
   } catch (error) {
     console.error("Error removing favorite:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error.",
+    });
+  }
+});
+
+// Get user's favorites
+app.get("/favorites/:userEmail", async (req, res) => {
+  const { userEmail } = req.params;
+
+  try {
+    const userFavorites = await favoritesCollection.find({ userEmail }).toArray();
+
+    res.json(userFavorites);
+  } catch (error) {
+    console.error("Error fetching user's favorites:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error.",
+    });
+  }
+});
+
+// Get all equipment
+app.get("/equipment", async (req, res) => {
+  try {
+    const allEquipment = await equipmentCollection.find({}).toArray();
+
+    res.json(allEquipment);
+  } catch (error) {
+    console.error("Error fetching all equipment:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error.",
+    });
+  }
+});
+
+app.patch("/equipment/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { ...updateData } = req.body;
+
+    const result = await equipmentCollection.updateOne(
+      { _id: id },
+      { $set: updateData }
+    );
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Equipment not found.",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Equipment updated successfully.",
+    });
+  } catch (error) {
+    console.error("Error updating equipment:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error.",
+    });
+  }
+});
+
+app.delete("/equipment/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await equipmentCollection.deleteOne({ _id: id });
+    if (result.deletedCount === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Equipment not found.",
+      });
+    }
+    return res.status(200).json({
+      success: true,
+      message: "Equipment deleted successfully.",
+    });
+  } catch (error) {
+    console.error("Error deleting equipment:", error);
 
     return res.status(500).json({
       success: false,
