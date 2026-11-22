@@ -3,12 +3,12 @@ import express from "express";
 import cors from "cors";
 import { MongoClient } from "mongodb";
 import { ObjectId } from "mongodb";
+import Stripe from "stripe";
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
 app.use(cors());
-app.use(express.json());
 
 const client = new MongoClient(process.env.MONGODB_URI);
 export async function connectToMongoDB() {
@@ -28,6 +28,139 @@ const equipmentCollection = db.collection("equipment");
 const bookingsCollection = db.collection("bookings");
 const paymentsCollection = db.collection("payments");
 const favoritesCollection = db.collection("favorites");
+
+//stripe payment route
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+
+app.use((req, res, next) => {
+  console.log("REQUEST:", req.method, req.url);
+  next();
+});
+// Webhook endpoint for Stripe to handle events
+app.post("/api/webhooks/stripe",express.raw({ type: "application/json" }),
+  async (req, res) => {
+
+    console.log("Stripe Webhook Received:", req.body);
+    const signature = req.headers["stripe-signature"];
+
+    let event;
+console.log("Stripe Webhook Received:", req.body);
+    try {
+      event = stripe.webhooks.constructEvent(
+        req.body,
+        signature,
+        process.env.STRIPE_WEBHOOK_SECRET,
+      );
+    } catch (error) {
+      console.error("Webhook Signature Error:", error.message);
+      return res.status(400).send(`Webhook Error: ${error.message}`);
+    }
+
+    try {
+      console.log("Stripe Event Received:", event.type);
+
+      if (event.type === "checkout.session.completed") {
+        const session = event.data.object;
+
+        if (session.payment_status === "paid") {
+          const bookingId = session.metadata.bookingId;
+
+          await bookingsCollection.updateOne(
+            {
+              _id: new ObjectId(bookingId),
+              paymentStatus: { $ne: "paid" },
+            },
+            {
+              $set: {
+                paymentStatus: "paid",
+                stripeSessionId: session.id,
+                paidAt: new Date(),
+              },
+            },
+          );
+
+          console.log("Payment successful! Booking updated.");
+        }
+      }
+
+      return res.status(200).json({ received: true });
+    } catch (error) {
+      console.error("Webhook Processing Error:", error);
+      return res.status(500).json({ received: false });
+    }
+  },
+);
+
+app.use(express.json());
+//---------------------------------------------------------
+
+app.post("/create-checkout-session", async (req, res) => {
+  try {
+    const payload = req.body;
+
+    if (!payload.bookingId || !payload.userEmail) {
+      return res.status(400).json({
+        success: false,
+        message: "Booking ID and user email are required",
+      });
+    }
+    const booking = await bookingsCollection.findOne({
+      _id: new ObjectId(payload.bookingId),
+    });
+
+    if (!booking) {
+      return res.status(404).json({
+        success: false,
+        message: "Booking not found",
+      });
+    }
+
+    const session = await stripe.checkout.sessions.create({
+      line_items: [
+        {
+          price_data: {
+            currency: "usd",
+            unit_amount: Math.round(
+              Number(booking.totalAmount) * 0.00804 * 100,
+            ), // Convert to cents
+            product_data: {
+              name: booking.name,
+              description: booking.description,
+            },
+          },
+          quantity: 1,
+        },
+      ],
+      mode: "payment",
+      customer_email: payload.userEmail,
+      metadata: {
+        bookingId: booking._id.toString(),
+        userEmail: booking.userEmail,
+      },
+      success_url: `${process.env.CLIENT_URL}/payment/success?session_id={CHECKOUT_SESSION_ID}`,
+
+      cancel_url: `${process.env.CLIENT_URL}/payment/cancel`,
+    });
+    console.log("Checkout Session Created:", {
+      sessionId: session.id,
+      bookingId: booking._id.toString(),
+      metadata: session.metadata,
+    });
+
+    return res.status(200).json({
+      success: true,
+      url: session.url,
+    });
+  } catch (error) {
+    console.error("Stripe Error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to create checkout session",
+    });
+  }
+});
+//--------------------------------------------------
 
 app.get("/", (req, res) => {
   res.send({ message: "Welcome to the Rentrixa API", status: "success" });
@@ -246,7 +379,7 @@ app.post("/book-equipment", async (req, res) => {
   }
 });
 
-// Approve All Equipment Filter Search and Sort 
+// Approve All Equipment Filter Search and Sort
 
 app.get("/all-equipment", async (req, res) => {
   try {
@@ -363,6 +496,154 @@ app.get("/all-equipment", async (req, res) => {
 
     res.status(500).json({
       message: "Failed to fetch equipment",
+    });
+  }
+});
+
+//bookings get information by id
+
+app.get("/bookings/:id", async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid booking ID.",
+      });
+    }
+
+    const booking = await bookingsCollection.findOne({
+      _id: new ObjectId(id),
+    });
+
+    if (!booking) {
+      return res.status(404).json({
+        success: false,
+        message: "Booking not found.",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: booking,
+    });
+  } catch (error) {
+    console.error("Error fetching booking:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error.",
+    });
+  }
+});
+
+//Add favorite
+
+app.post("/favorites", async (req, res) => {
+  try {
+    const {
+      equipmentId,
+      userEmail,
+      userName,
+      userImage,
+      equipmentName,
+      equipmentBrand,
+      equipmentModel,
+      equipmentImage,
+      equipmentCondition,
+      equipmentCategory,
+      equipmentLocation,
+    } = req.body;
+
+    if (!equipmentId || !userEmail) {
+      return res.status(400).json({
+        success: false,
+        message: "User email and equipment ID required.",
+      });
+    }
+
+    // Check existing favorite
+    const existingFavorite = await favoritesCollection.findOne({
+      equipmentId: String(equipmentId),
+      userEmail,
+    });
+
+    if (existingFavorite) {
+      return res.status(409).json({
+        success: false,
+        message: "Already added to favorites.",
+      });
+    }
+
+    // Insert favorite
+    const result = await favoritesCollection.insertOne({
+      equipmentId: String(equipmentId),
+      userEmail,
+      userName,
+      userImage,
+      equipmentName,
+      equipmentBrand,
+      equipmentModel,
+      equipmentImage,
+      equipmentCondition,
+      equipmentCategory,
+      equipmentLocation,
+      createdAt: new Date(),
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: "Added to favorites successfully.",
+      data: {
+        _id: result.insertedId,
+        equipmentId: String(equipmentId),
+        userEmail,
+      },
+    });
+  } catch (error) {
+    console.error("Error adding favorite:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Internal server error.",
+    });
+  }
+});
+
+app.delete("/favorites", async (req, res) => {
+  try {
+    const { equipmentId, userEmail } = req.body;
+
+    if (!equipmentId || !userEmail) {
+      return res.status(400).json({
+        success: false,
+        message: "User email and equipment ID required.",
+      });
+    }
+
+    const result = await favoritesCollection.deleteOne({
+      equipmentId: String(equipmentId),
+      userEmail,
+    });
+
+    if (result.deletedCount === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Favorite not found.",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Removed from favorites successfully.",
+    });
+  } catch (error) {
+    console.error("Error removing favorite:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error.",
     });
   }
 });
