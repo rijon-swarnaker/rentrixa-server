@@ -483,7 +483,7 @@ app.post("/equipment",verifyToken,verifyRole("owner"), async (req, res) => {
 
 // Customer's Bookings Rental History
 
-app.get("/user-bookings/:userEmail", async (req, res) => {
+app.get("/user-bookings/:userEmail",verifyToken,verifyRole("customer"), async (req, res) => {
   const userEmail = req.params.userEmail;
 
   try {
