@@ -4,6 +4,11 @@ import cors from "cors";
 import { MongoClient } from "mongodb";
 import { ObjectId } from "mongodb";
 import Stripe from "stripe";
+import { createRemoteJWKSet, jwtVerify } from "jose";
+
+const JWKS = createRemoteJWKSet(
+  new URL(`${process.env.CLIENT_URL}/api/auth/jwks`)
+);
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -168,6 +173,61 @@ app.get("/", (req, res) => {
   res.send({ message: "Welcome to the Rentrixa API", status: "success" });
 });
 
+//-------------------------------------------------------
+
+
+const verifyToken = async (req, res, next) => {
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader?.startsWith("Bearer ")) {
+    return res.status(401).json({
+      message: "Authorization token required",
+    });
+  }
+
+  const token = authHeader.split(" ")[1];
+
+  try {
+    const result = await jwtVerify(token, JWKS, {
+      issuer: process.env.CLIENT_URL,
+      audience: process.env.CLIENT_URL,
+    });
+
+    const payload = result.payload;
+
+    console.log("Token Payload:", payload);
+
+    req.user = {
+      id: payload.id,
+      email: payload.email,
+      name: payload.name,
+      role: payload.role,
+    };
+
+    next();
+  } catch (error) {
+    console.error("Token verification error:", error);
+
+    return res.status(401).json({
+      message: "Unauthorized: Invalid token",
+    });
+  }
+};
+
+
+const verifyRole = (roles) => {
+  return (req, res, next) => {
+    const role = req.user?.role;
+    if(roles.includes(role)) {
+      next();
+    } else {
+      return res.status(403).json({
+        message: "Forbidden: Insufficient permissions",
+      });
+    }
+  };
+};
+
 //Equipment View Details Page
 
 app.get("/equipment/:id", async (req, res) => {
@@ -201,7 +261,7 @@ app.get("/equipment/:id", async (req, res) => {
 
 // admin change role
 
-app.patch("/users/:id", async (req, res) => {
+app.patch("/users/:id",verifyToken,verifyRole("admin"), async (req, res) => {
   const id = req.params.id;
   const { role } = req.body || {};
   const allowedRoles = ["customer", "admin", "owner"];
@@ -230,6 +290,7 @@ app.patch("/users/:id", async (req, res) => {
     res.status(500).json({ message: "Internal server error" });
   }
 });
+
 
 // get all approved equipment
 
@@ -290,7 +351,7 @@ app.get("/my-equipment-bookings/:ownerEmail", async (req, res) => {
 });
 
 //  Get all equipment route
-app.get("/equipment", async (req, res) => {
+app.get("/equipment",verifyToken,verifyRole("admin"), async (req, res) => {
   try {
     const equipment = await equipmentCollection.find().toArray();
     res.json(equipment);
@@ -301,7 +362,7 @@ app.get("/equipment", async (req, res) => {
 });
 
 //admin get all bookings equipment
-app.get("/equipment-bookings", async (req, res) => {
+app.get("/equipment-bookings",verifyToken,verifyRole("admin"), async (req, res) => {
   try {
     const bookings = await bookingsCollection.find().toArray();
     res.json(bookings);
@@ -312,7 +373,7 @@ app.get("/equipment-bookings", async (req, res) => {
 });
 
 // admin delete booking equipment route
-app.delete("/bookings/:id", async (req, res) => {
+app.delete("/bookings/:id",verifyToken,verifyRole("admin"), async (req, res) => {
   const bookingId = req.params.id;
 
   try {
@@ -346,9 +407,9 @@ app.delete("/bookings/:id", async (req, res) => {
   }
 });
 
-// Delete equipment route
+// Admin equipment page Delete equipment route
 
-app.delete("/equipment/:id", async (req, res) => {
+app.delete("/equipment/:id", verifyToken, verifyRole(["admin", "owner"]), async (req, res) => {
   const equipmentId = req.params.id;
 
   try {
@@ -384,8 +445,8 @@ app.delete("/equipment/:id", async (req, res) => {
   }
 });
 
-// Owner's Update equipment route
-app.patch("/equipment/:id", async (req, res) => {
+// Admin Update equipment page route
+app.patch("/equipment/:id",verifyToken,verifyRole(["admin", "owner"]), async (req, res) => {
   const equipmentId = req.params.id;
   const updatedData = req.body;
 
@@ -406,8 +467,8 @@ app.patch("/equipment/:id", async (req, res) => {
   }
 });
 
-// Owner's Add equipment route
-app.post("/equipment", async (req, res) => {
+// // Owner's Add equipment route
+app.post("/equipment",verifyToken,verifyRole("owner"), async (req, res) => {
   try {
     const equipment = req.body;
     const result = await equipmentCollection.insertOne(equipment);
@@ -474,9 +535,10 @@ app.post("/book-equipment", async (req, res) => {
   }
 });
 
-// Approve All Equipment Filter Search and Sort
-
+// Approve All Equipment Filter Search and Sort----------------------------------
+//--------------------------------------------------------------
 app.get("/all-equipment", async (req, res) => {
+  console.log("Query parameters received:", req.user);
   try {
     const query = {
       status: "approved",
@@ -762,75 +824,75 @@ app.get("/favorites/:userEmail", async (req, res) => {
 });
 
 // Get all equipment
-app.get("/equipment", async (req, res) => {
-  try {
-    const allEquipment = await equipmentCollection.find({}).toArray();
+// app.get("/equipment", async (req, res) => {
+//   try {
+//     const allEquipment = await equipmentCollection.find({}).toArray();
 
-    res.json(allEquipment);
-  } catch (error) {
-    console.error("Error fetching all equipment:", error);
+//     res.json(allEquipment);
+//   } catch (error) {
+//     console.error("Error fetching all equipment:", error);
 
-    return res.status(500).json({
-      success: false,
-      message: "Internal server error.",
-    });
-  }
-});
+//     return res.status(500).json({
+//       success: false,
+//       message: "Internal server error.",
+//     });
+//   }
+// });
 
-app.patch("/equipment/:id", async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { ...updateData } = req.body;
+// app.patch("/equipment/:id", async (req, res) => {
+//   try {
+//     const { id } = req.params;
+//     const { ...updateData } = req.body;
 
-    const result = await equipmentCollection.updateOne(
-      { _id: id },
-      { $set: updateData }
-    );
+//     const result = await equipmentCollection.updateOne(
+//       { _id: id },
+//       { $set: updateData }
+//     );
 
-    if (result.matchedCount === 0) {
-      return res.status(404).json({
-        success: false,
-        message: "Equipment not found.",
-      });
-    }
+//     if (result.matchedCount === 0) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "Equipment not found.",
+//       });
+//     }
 
-    return res.status(200).json({
-      success: true,
-      message: "Equipment updated successfully.",
-    });
-  } catch (error) {
-    console.error("Error updating equipment:", error);
+//     return res.status(200).json({
+//       success: true,
+//       message: "Equipment updated successfully.",
+//     });
+//   } catch (error) {
+//     console.error("Error updating equipment:", error);
 
-    return res.status(500).json({
-      success: false,
-      message: "Internal server error.",
-    });
-  }
-});
+//     return res.status(500).json({
+//       success: false,
+//       message: "Internal server error.",
+//     });
+//   }
+// });
 
-app.delete("/equipment/:id", async (req, res) => {
-  try {
-    const { id } = req.params;
-    const result = await equipmentCollection.deleteOne({ _id: id });
-    if (result.deletedCount === 0) {
-      return res.status(404).json({
-        success: false,
-        message: "Equipment not found.",
-      });
-    }
-    return res.status(200).json({
-      success: true,
-      message: "Equipment deleted successfully.",
-    });
-  } catch (error) {
-    console.error("Error deleting equipment:", error);
+// app.delete("/equipment/:id",  async (req, res) => {
+//   try {
+//     const { id } = req.params;
+//     const result = await equipmentCollection.deleteOne({ _id: id });
+//     if (result.deletedCount === 0) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "Equipment not found.",
+//       });
+//     }
+//     return res.status(200).json({
+//       success: true,
+//       message: "Equipment deleted successfully.",
+//     });
+//   } catch (error) {
+//     console.error("Error deleting equipment:", error);
 
-    return res.status(500).json({
-      success: false,
-      message: "Internal server error.",
-    });
-  }
-});
+//     return res.status(500).json({
+//       success: false,
+//       message: "Internal server error.",
+//     });
+//   }
+// });
 
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
