@@ -69,9 +69,11 @@ console.log("Stripe Webhook Received:", req.body);
             {
               _id: new ObjectId(bookingId),
               paymentStatus: { $ne: "paid" },
+              bookingStatus: { $ne: "approved" },
             },
             {
               $set: {
+                bookingStatus: "approved",
                 paymentStatus: "paid",
                 stripeSessionId: session.id,
                 paidAt: new Date(),
@@ -139,7 +141,7 @@ app.post("/create-checkout-session", async (req, res) => {
       },
       success_url: `${process.env.CLIENT_URL}/payment/success?session_id={CHECKOUT_SESSION_ID}`,
 
-      cancel_url: `${process.env.CLIENT_URL}/payment/cancel`,
+      cancel_url: `${process.env.CLIENT_URL}/cancel`,
     });
     console.log("Checkout Session Created:", {
       sessionId: session.id,
@@ -240,6 +242,21 @@ app.get("/my-equipment/:ownerEmail", async (req, res) => {
   }
 });
 
+// Owner's my equipment bookingCollection 
+app.get("/my-equipment-bookings/:ownerEmail", async (req, res) => {
+  const ownerEmail = req.params.ownerEmail;
+
+  try {
+    const myBookings = await bookingsCollection
+      .find({ ownerEmail })
+      .toArray();
+    res.json(myBookings);
+  } catch (error) {
+    console.error("Error fetching user's bookings:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
 //  Get all equipment route
 app.get("/equipment", async (req, res) => {
   try {
@@ -263,7 +280,6 @@ app.get("/equipment-bookings", async (req, res) => {
 });
 
 // admin delete booking equipment route
-
 app.delete("/bookings/:id", async (req, res) => {
   const bookingId = req.params.id;
 
