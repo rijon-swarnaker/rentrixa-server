@@ -23,7 +23,7 @@ export async function connectToMongoDB() {
 
 const connectedClient = await connectToMongoDB();
 const db = connectedClient.db("rentrixdb");
-const usersCollection = db.collection("users");
+const usersCollection = db.collection("user");
 const equipmentCollection = db.collection("equipment");
 const bookingsCollection = db.collection("bookings");
 const paymentsCollection = db.collection("payments");
@@ -195,6 +195,38 @@ app.get("/equipment/:id", async (req, res) => {
     res.json(equipment);
   } catch (error) {
     console.error("Error fetching equipment details:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+// admin change role
+
+app.patch("/users/:id", async (req, res) => {
+  const id = req.params.id;
+  const { role } = req.body || {};
+  const allowedRoles = ["customer", "admin", "owner"];
+
+  if (!ObjectId.isValid(id)) {
+    return res.status(400).json({ message: "Invalid user id." });
+  }
+
+  if (!allowedRoles.includes(role)) {
+    return res.status(400).json({ message: "Invalid role." });
+  }
+
+  try {
+    const result = await usersCollection.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { role } }
+    );
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ message: "User not found." });
+    }
+
+    res.json({ success: true, role });
+  } catch (error) {
+    console.error("Error updating user role:", error);
     res.status(500).json({ message: "Internal server error" });
   }
 });
